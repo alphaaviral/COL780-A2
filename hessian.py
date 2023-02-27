@@ -192,8 +192,8 @@ if __name__ == '__main__':
     color_img = cv2.imread("Chess_Board.png", cv2.IMREAD_COLOR)
     for i in range(img.shape[0]):
         for j in range(img.shape[1]):
-            if hessianDet[i][j] == maximas[i][j]:
-                color_img = cv2.circle(color_img, (i,j), 15, (0,0,255), -1)
+            if hessianDet[i][j] == maximas[i][j] and hessianDet[i][j]>1500000:
+                color_img = cv2.circle(color_img, (j,i), 15, (0,0,255), -1)
     cv2.imwrite('./color_img.png', color_img)
     # doubleDerivative = calculateDerivatives(derivative, True, True)
     # cv2.imshow('img',xder)
