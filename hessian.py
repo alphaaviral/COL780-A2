@@ -39,7 +39,7 @@ def calculateHessian(image, patch):
     isMaxima[difference==0] = 1
 
     res = np.zeros_like(image)
-    threshold = 0.3*np.max(maximas)
+    threshold = 0.35*np.max(maximas)
     res[maximas>threshold] = 1
 
     res = res*isMaxima
@@ -130,43 +130,103 @@ def getAffinePoints(map):
     return affinePoints
 
 def getAffineMatrix(src_points, dst_points):
+    src_points[:, 0], src_points[:, 1] = src_points[:, 1], src_points[:, 0].copy()
+    dst_points[:, 0], dst_points[:, 1] = dst_points[:, 1], dst_points[:, 0].copy()
     affMatrix = np.zeros((2,3))
-    Y = np.array([[dst_points[0][0]], [dst_points[1][0]], [dst_points[2][0]]])
-    A = np.array([[src_points[0][0], src_points[0][1], 1], [src_points[1][0], src_points[1][1], 1], [src_points[2][0], src_points[2][1], 1]])
+    Y = np.array([[src_points[0][0]], [src_points[1][0]], [src_points[2][0]]])
+    A = np.array([[dst_points[0][0], dst_points[0][1], 1], [dst_points[1][0], dst_points[1][1], 1], [dst_points[2][0], dst_points[2][1], 1]])
     affMatrix[0] = np.transpose(np.linalg.solve(A, Y))
-    Y = np.array([[dst_points[0][1]], [dst_points[1][1]], [dst_points[2][1]]])
+    Y = np.array([[src_points[0][1]], [src_points[1][1]], [src_points[2][1]]])
     affMatrix[1] = np.transpose(np.linalg.solve(A, Y))
     return affMatrix
+
+def getCumulativeAffine(cumAffine, newAffine):
+    cumAffine = np.append(cumAffine, [[0, 0, 1]], axis=0)
+    newAffine = np.append(newAffine, [[0, 0, 1]], axis=0)
+    finalAffine = np.dot(newAffine, cumAffine)
+    finalAffine = finalAffine[0:2]
+    return finalAffine
 
 if __name__ == '__main__':
     start_time = time.time()
     patchSize = 7
-    imgpath = 'Dataset\\CV_assignment_2_dataset\\2\\1.jpg'
-    img1 = cv2.imread(imgpath,cv2.IMREAD_COLOR)
-    img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    hessian1 = calculateHessian(img1_gray,patchSize)
-    imgpath = 'Dataset\\CV_assignment_2_dataset\\2\\2.jpg'
-    img2 = cv2.imread(imgpath,cv2.IMREAD_COLOR)
-    img2_gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-    img2 = img2.astype('int64')
-    hessian2 = calculateHessian(img2_gray,patchSize)
-    map = mapHessianPoints(img1_gray,img2_gray,hessian1,hessian2,patchSize)
-    aff = getAffinePoints(map)
-    affineTransform = getAffineMatrix(aff[:,0:2], aff[:,2:4])
-    rows, cols, ch = img2.shape
-    affineTransform[0][2] += int(cols/2)
-    affineTransform[1][2] += int(rows/2)
-    transformed_img2 = cv2.warpAffine(np.float64(img2), affineTransform, (int(2*cols),int(2*rows)))
-    affineTransform = np.array([[1,0,int(cols/2)],[0,1,int(rows/2)]]).astype('float32')
-    transformed_img1 = cv2.warpAffine(np.float64(img1), affineTransform, (int(2*cols),int(2*rows)))
-    stitched = np.where(transformed_img1!=0, transformed_img1, transformed_img2)
-    # print(aff)
-    # color_img = cv2.imread(imgpath,cv2.IMREAD_COLOR)
-    # for i in range(img.shape[0]):
-    #     for j in range(img.shape[1]):
-    #         if hessian[i][j] == 1:
-    #             color_img = cv2.circle(color_img, (j,i), 15, (0,0,255), -1)
-    print(time.time()-start_time)
-    cv2.imwrite('./affine1.png', transformed_img1)
-    cv2.imwrite('./affine2.png', transformed_img2)
-    cv2.imwrite('./stitched.png', stitched)
+    imgpath = 'Dataset\\New Dataset\\2\\image '
+    imageNo = -1
+    oldHessian = None
+    oldImg = None
+    stitched = None
+    oldTransform = None
+    finalSize = (0,0)
+    while(1):
+        imageNo += 1
+        path = imgpath + str(imageNo) + '.jpg'
+        img = cv2.imread(path,cv2.IMREAD_COLOR)
+        if img is None:
+            break
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        hessian = calculateHessian(img_gray,patchSize)
+        if imageNo == 0:
+            finalSize = (img.shape[0], img.shape[1])
+            oldHessian = hessian
+            oldImg = img_gray
+            stitched = img
+            # stitched = np.pad(stitched, ((1000, 1000), (1000, 1000), (0,0)), 'constant', constant_values=0)
+            # stitchAffine = np.array([[1,0,int(cols/2)],[0,1,int(rows/2)]]).astype('float32')
+            # transformed_stitched = cv2.warpAffine(stitched, stitchAffine, (int(2*cols),int(2*rows)))
+            # stitched = transformed_stitched
+            # cv2.imshow('Stitched Image', stitched)
+            # cv2.waitKey(10000)
+            continue
+        map = mapHessianPoints(oldImg,img_gray,oldHessian,hessian,patchSize)
+        aff = getAffinePoints(map)
+        affineTransform = getAffineMatrix(aff[:,0:2], aff[:,2:4])
+        if oldTransform is not None:
+            affineTransform = getCumulativeAffine(oldTransform, affineTransform)
+        
+        # img = np.pad(img, ((1000, 1000), (1000, 1000), (0,0)), 'constant', constant_values=0)
+        rows, cols, ch = img.shape
+        affineTransform[0][2] += int(cols/2)
+        affineTransform[1][2] += int(rows/2)
+        transformed_img = cv2.warpAffine(np.float64(img), affineTransform, (int(2*cols),int(2*rows)))
+        affineTransform[0][2] -= int(cols/2)
+        affineTransform[1][2] -= int(rows/2)
+        # rows, cols, ch = stitched.shape
+        # stitched_gray = cv2.cvtColor(stitched, cv2.COLOR_BGR2GRAY)
+        stitchedTransform = np.array([[1,0,int(cols/2)],[0,1,int(rows/2)]]).astype('float32')
+        stitched = cv2.warpAffine(np.float64(stitched), stitchedTransform, (int(2*cols),int(2*rows)))
+        stitched = np.where(stitched!=0, stitched, transformed_img)
+        dummy = np.argwhere(stitched != 0) # assume blackground is zero
+        max_y = dummy[:, 0].max()
+        min_y = dummy[:, 0].min()
+        min_x = dummy[:, 1].min()
+        max_x = dummy[:, 1].max()
+        stitched = stitched[min_y:max_y, min_x:max_x]
+
+        cv2.imwrite('./stitched.png', stitched)
+        oldTransform = affineTransform
+        oldHessian = hessian
+        oldImg = img_gray
+
+    # img1 = cv2.imread(imgpath,cv2.IMREAD_COLOR)
+    # img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    # hessian1 = calculateHessian(img1_gray,patchSize)
+    # imgpath = 'Dataset\\CV_assignment_2_dataset\\2\\2.jpg'
+    # img2 = cv2.imread(imgpath,cv2.IMREAD_COLOR)
+    # img2_gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    # img2 = img2.astype('int64')
+    # hessian2 = calculateHessian(img2_gray,patchSize)
+    # map = mapHessianPoints(img1_gray,img2_gray,hessian1,hessian2,patchSize)
+    # aff = getAffinePoints(map)
+    # affineTransform = getAffineMatrix(aff[:,0:2], aff[:,2:4])
+    # rows, cols, ch = img2.shape
+    # affineTransform[0][2] += int(cols/2)
+    # affineTransform[1][2] += int(rows/2)
+    # transformed_img2 = cv2.warpAffine(np.float64(img2), affineTransform, (int(2*cols),int(2*rows)))
+    # affineTransform = np.array([[1,0,int(cols/2)],[0,1,int(rows/2)]]).astype('float32')
+    # transformed_img1 = cv2.warpAffine(np.float64(img1), affineTransform, (int(2*cols),int(2*rows)))
+    # stitched = np.where(transformed_img1!=0, transformed_img1, transformed_img2)
+
+    # print(time.time()-start_time)
+    # cv2.imwrite('./affine1.png', transformed_img1)
+    # cv2.imwrite('./affine2.png', transformed_img2)
+    # cv2.imwrite('./stitched.png', stitched)
