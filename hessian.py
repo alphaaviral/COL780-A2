@@ -4,7 +4,7 @@ import time
 from scipy.ndimage import maximum_filter as maxf2D
 from scipy.ndimage import convolve as cnv
 
-def calculateDerivatives(image, xaxis, yaxis):
+def calculateDerivatives(image, xaxis, yaxis): # calculate derivatives of image along given axes
     xDer = np.array([[-1, 0, 1]], np.float64)
     yDer = np.array([[1], [0], [-1]], np.float64)
     if xaxis:
@@ -18,7 +18,7 @@ def calculateDerivatives(image, xaxis, yaxis):
     elif yaxis:
         return Iy
 
-def calculateHessian(image, patch):
+def calculateHessian(image, patch):  #Determine whether each pixel is a hessian point or not. Return a matrix containing 1s and 0s
     image = image.astype('int64')
     Ix, Iy = calculateDerivatives(image, True, True)
     Ixx, Ixy = calculateDerivatives(Ix, True, True)
@@ -46,7 +46,7 @@ def calculateHessian(image, patch):
     res[:,image.shape[1]-10:image.shape[1]] = 0
     return res
 
-def getSSD(image1, image2, pos1, pos2, patch):
+def getSSD(image1, image2, pos1, pos2, patch):  #Calculate sum of squared differences for two points in consecutive frames
     x1min = pos1[0]-int(patch/2)
     y1min = pos1[1]-int(patch/2)
     x2min = pos2[0]-int(patch/2)
@@ -58,7 +58,7 @@ def getSSD(image1, image2, pos1, pos2, patch):
             ssd += (image1[x1min+i][y1min+j]-image2[x2min+i][y2min+j])**2
     return ssd
 
-def mapHessianPoints(image1, image2, hess1, hess2, patch):
+def mapHessianPoints(image1, image2, hess1, hess2, patch): #Map hessian point in a frame to those in the next frame by minimising SSD.
     image1 = image1.astype('int64')
     image2 = image2.astype('int64')
     padded_image1 = np.pad(image1, int(patch/2), 'constant', constant_values=0)
@@ -99,7 +99,7 @@ def mapHessianPoints(image1, image2, hess1, hess2, patch):
     sortedMapping = mapping[mapping[:, 0].argsort()]
     return sortedMapping
 
-def checkCollinearity(points):
+def checkCollinearity(points): #Check if the points are collinear
     mat = np.array([[points[0][0], points[1][0], points[2][0]], [points[0][1], points[1][1], points[2][1]], [1, 1, 1]])
     det = np.linalg.det(mat)
     if det == 0:
@@ -110,7 +110,7 @@ def checkCollinearity(points):
         return False
     return True
 
-def getAffinePoints(map):
+def getAffinePoints(map): #Get 3 non collinear points with min SSD from the mapping of points.
     affinePoints = np.zeros((3,4), dtype=np.float32)
     index = 0
     for i in range(3):
@@ -126,7 +126,7 @@ def getAffinePoints(map):
 
     return affinePoints
 
-def getAffineMatrix(src_points, dst_points):
+def getAffineMatrix(src_points, dst_points): #Get affine parameters from 3 points in consecutive frames.
     src_points[:, 0], src_points[:, 1] = src_points[:, 1], src_points[:, 0].copy()
     dst_points[:, 0], dst_points[:, 1] = dst_points[:, 1], dst_points[:, 0].copy()
     affMatrix = np.zeros((2,3))
@@ -137,14 +137,14 @@ def getAffineMatrix(src_points, dst_points):
     affMatrix[1] = np.transpose(np.linalg.solve(A, Y))
     return affMatrix
 
-def getCumulativeAffine(cumAffine, newAffine):
+def getCumulativeAffine(cumAffine, newAffine): #Get cumulative affine matrix to find the transformation wrt first frame.
     cumAffine = np.append(cumAffine, [[0, 0, 1]], axis=0)
     newAffine = np.append(newAffine, [[0, 0, 1]], axis=0)
     finalAffine = np.dot(newAffine, cumAffine)
     finalAffine = finalAffine[0:2]
     return finalAffine
 
-def trimImage(image):
+def trimImage(image): #Trim the stitched image to remove black borders.
     temp = np.argwhere(image != 0)
     max_y = temp[:, 0].max()
     min_y = temp[:, 0].min()
@@ -154,9 +154,8 @@ def trimImage(image):
     return ret
 
 if __name__ == '__main__':
-    start_time = time.time()
-    patchSize = 7
-    imgpath = 'Dataset\\CV_assignment_2_dataset\\2\\'
+    patchSize = 7                               #Patch size for calculating SSD, for summation in hessian matrix
+    imgpath = 'Dataset\\New Dataset\\1\\image '
     imageNo = -1
     oldHessian = None
     oldImg = None
@@ -165,13 +164,13 @@ if __name__ == '__main__':
 
     while(1):
         imageNo += 1
-        path = imgpath + str(imageNo+1) + '.jpg'
+        path = imgpath + str(imageNo) + '.jpg'
         img = cv2.imread(path,cv2.IMREAD_COLOR)
         if img is None:
             break
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        hessian = calculateHessian(img_gray,patchSize)
+        hessian = calculateHessian(img_gray,patchSize)    #Calculate hessian points for the image
 
         if imageNo == 0:
             oldHessian = hessian
@@ -179,28 +178,26 @@ if __name__ == '__main__':
             stitched = img
             continue
 
-        map = mapHessianPoints(oldImg,img_gray,oldHessian,hessian,patchSize)
-        aff = getAffinePoints(map)
-        affineTransform = getAffineMatrix(aff[:,0:2], aff[:,2:4])
+        map = mapHessianPoints(oldImg,img_gray,oldHessian,hessian,patchSize) #Find map of hessian points using the hessian of previous image and current image
+        aff = getAffinePoints(map)                                           #Get affine points from the map
+        affineTransform = getAffineMatrix(aff[:,0:2], aff[:,2:4])            #Find the transformation from this image to previous image
 
         if oldTransform is not None:
-            affineTransform = getCumulativeAffine(oldTransform, affineTransform)
+            affineTransform = getCumulativeAffine(oldTransform, affineTransform) #Find the transformation from this image to first image
         
         rows, cols, ch = img.shape
         affineTransform[0][2] += int(cols/2)
         affineTransform[1][2] += int(rows/2)
-        transformed_img = cv2.warpAffine(np.float64(img), affineTransform, (int(2*cols),int(2*rows)))
+        transformed_img = cv2.warpAffine(np.float64(img), affineTransform, (int(2*cols),int(2*rows))) #Transform the image to align with the first image
         affineTransform[0][2] -= int(cols/2)
         affineTransform[1][2] -= int(rows/2)
 
         stitchedTransform = np.array([[1,0,int(cols/2)],[0,1,int(rows/2)]]).astype('float32')
         stitched = cv2.warpAffine(np.float64(stitched), stitchedTransform, (int(2*cols),int(2*rows)))
-        stitched = np.where(stitched!=0, stitched, transformed_img)
-        stitched = trimImage(stitched)
+        stitched = np.where(stitched!=0, stitched, transformed_img)                                   #Add the current image to the already stitched image
+        stitched = trimImage(stitched)                                                                #Trim the image to remove black borders
 
         cv2.imwrite('./stitched.png', stitched)
         oldTransform = affineTransform
         oldHessian = hessian
         oldImg = img_gray
-        print(time.time() - start_time)
-        start_time = time.time()
